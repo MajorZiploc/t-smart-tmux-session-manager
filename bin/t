@@ -46,6 +46,7 @@ if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
 	HOME_REPLACER="s|^$HOME/|~/|"
 fi
 
+. ~/.bashrc.d/portable/functions.bash;
 function tmux_all_projects_list {
   local items="";
   tmuxps_get_project_dirs;
