@@ -46,7 +46,9 @@ if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
 	HOME_REPLACER="s|^$HOME/|~/|"
 fi
 
-. ~/.bashrc.d/portable/functions.bash;
+ALL_PROJECTS="";
+
+source ~/.bashrc;
 function tmux_all_projects_list {
   local items="";
   tmuxps_get_project_dirs;
@@ -56,14 +58,15 @@ function tmux_all_projects_list {
       items+="\n";
     }
   done;
-  echo "$items";
+  ALL_PROJECTS=$(echo "$items");
 }
+tmux_all_projects_list
 
 BORDER_LABEL=" t - smart tmux session manager "
 HEADER=" ctrl-s: sessions / ctrl-x: all projects / ctrl-d: directory"
 PROMPT=$(get_fzf_prompt)
 SESSION_BIND="ctrl-s:change-prompt(sessions> )+reload(tmux list-sessions -F '#S')"
-ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(tmux_all_projects_list)"
+ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(echo \"$ALL_PROJECTS\")"
 
 if fd --version &>/dev/null; then # fd is installed
 	DIR_BIND="ctrl-d:change-prompt(directory> )+reload(cd $HOME && echo $HOME; fd --type d --hidden --absolute-path --color never --exclude .git --exclude node_modules)"
