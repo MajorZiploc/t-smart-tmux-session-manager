@@ -46,11 +46,23 @@ if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
 	HOME_REPLACER="s|^$HOME/|~/|"
 fi
 
+function tmux_all_projects_list {
+  local items="";
+  tmuxps_get_project_dirs;
+  for _path in $(echo "${TMUXPS_PROJECT_DIRS[@]}" | tr " " "\n"); do
+    [[ -d "$_path" ]] && {
+      items+=$(find "$_path" -maxdepth 1 -mindepth 1 -type d);
+      items+="\n";
+    }
+  done;
+  echo "$items";
+}
+
 BORDER_LABEL=" t - smart tmux session manager "
 HEADER=" ctrl-s: sessions / ctrl-x: all projects / ctrl-d: directory"
 PROMPT=$(get_fzf_prompt)
 SESSION_BIND="ctrl-s:change-prompt(sessions> )+reload(tmux list-sessions -F '#S')"
-ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs)"
+ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(tmux_all_projects_list)"
 
 if fd --version &>/dev/null; then # fd is installed
 	DIR_BIND="ctrl-d:change-prompt(directory> )+reload(cd $HOME && echo $HOME; fd --type d --hidden --absolute-path --color never --exclude .git --exclude node_modules)"
@@ -62,7 +74,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 	if [ "$TMUX" = "" ]; then        # not in tmux
 		if [ $TMUX_STATUS -eq 0 ]; then # tmux is running
 			RESULT=$(
-				(tmux list-sessions -F '#S' && (~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs)) | fzf \
+				(tmux list-sessions -F '#S' && (tmux_all_projects_list)) | fzf \
 					--bind "$DIR_BIND" \
 					--bind "$SESSION_BIND" \
 					--bind "$ALL_PROJECTS_BIND" \
@@ -73,7 +85,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 			)
 		else # tmux is not running
 			RESULT=$(
-				(~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs) | fzf \
+				(tmux_all_projects_list) | fzf \
 					--bind "$DIR_BIND" \
 					--border-label "$BORDER_LABEL" \
 					--header " ctrl-d: directory" \
@@ -83,7 +95,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 		fi
 	else # in tmux
 		RESULT=$(
-			(tmux list-sessions -F '#S' && (~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs)) | fzf-tmux \
+			(tmux list-sessions -F '#S' && (tmux_all_projects_list)) | fzf-tmux \
 				--bind "$DIR_BIND" \
 				--bind "$SESSION_BIND" \
 				--bind "$ALL_PROJECTS_BIND" \
@@ -95,7 +107,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 		)
 	fi
 else # argument provided
-  result=~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs | grep -E "$1";
+  result=$(tmux_all_projects_list | grep -E "$1");
 	result_exit_code=$?
 	if [ ! $result_exit_code -eq 0 ]; then # zoxide result found
 			echo "No directory found."
