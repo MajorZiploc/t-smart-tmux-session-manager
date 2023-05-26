@@ -8,16 +8,16 @@ if [ "$1" = "-h" ] || [ "$1" == "--help" ]; then # help argument
 	printf "\033[32m  Run interactive mode\n"
 	printf "\033[34m      t\n"
 	printf "\033[34m        ctrl-s list only tmux sessions\n"
-	printf "\033[34m        ctrl-x list only zoxide results\n"
+	printf "\033[34m        ctrl-x list all projects\n"
 	printf "\033[34m        ctrl-d list directories\n"
 	printf "\n"
-	printf "\033[32m  Go to session (matches tmux session, zoxide result, or directory)\n"
+	printf "\033[32m  Go to session (matches tmux session, all projects, or directory)\n"
 	printf "\033[34m      t {name}\n"
 	printf "\n"
 	printf "\033[32m  Open popup (while in tmux)\n"
 	printf "\033[34m      <prefix>+T\n"
 	printf "\033[34m        ctrl-s list only tmux sessions\n"
-	printf "\033[34m        ctrl-x list only zoxide results\n"
+	printf "\033[34m        ctrl-x list all projects\n"
 	printf "\033[34m        ctrl-d list directories\n"
 	printf "\n"
 	printf "\033[32m  Show help\n"
@@ -47,10 +47,10 @@ if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
 fi
 
 BORDER_LABEL=" t - smart tmux session manager "
-HEADER=" ctrl-s: sessions / ctrl-x: zoxide / ctrl-d: directory"
+HEADER=" ctrl-s: sessions / ctrl-x: all projects / ctrl-d: directory"
 PROMPT=$(get_fzf_prompt)
 SESSION_BIND="ctrl-s:change-prompt(sessions> )+reload(tmux list-sessions -F '#S')"
-ZOXIDE_BIND="ctrl-x:change-prompt(zoxide> )+reload(zoxide query -l | sed -e \"$HOME_REPLACER\")"
+ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs)"
 
 if fd --version &>/dev/null; then # fd is installed
 	DIR_BIND="ctrl-d:change-prompt(directory> )+reload(cd $HOME && echo $HOME; fd --type d --hidden --absolute-path --color never --exclude .git --exclude node_modules)"
@@ -62,10 +62,10 @@ if [ $# -eq 0 ]; then             # no argument provided
 	if [ "$TMUX" = "" ]; then        # not in tmux
 		if [ $TMUX_STATUS -eq 0 ]; then # tmux is running
 			RESULT=$(
-				(tmux list-sessions -F '#S' && (zoxide query -l | sed -e "$HOME_REPLACER")) | fzf \
+				(tmux list-sessions -F '#S' && (~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs)) | fzf \
 					--bind "$DIR_BIND" \
 					--bind "$SESSION_BIND" \
-					--bind "$ZOXIDE_BIND" \
+					--bind "$ALL_PROJECTS_BIND" \
 					--border-label "$BORDER_LABEL" \
 					--header "$HEADER" \
 					--no-sort \
@@ -73,7 +73,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 			)
 		else # tmux is not running
 			RESULT=$(
-				(zoxide query -l | sed -e "$HOME_REPLACER") | fzf \
+				(~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs) | fzf \
 					--bind "$DIR_BIND" \
 					--border-label "$BORDER_LABEL" \
 					--header " ctrl-d: directory" \
@@ -83,10 +83,10 @@ if [ $# -eq 0 ]; then             # no argument provided
 		fi
 	else # in tmux
 		RESULT=$(
-			(tmux list-sessions -F '#S' && (zoxide query -l | sed -e "$HOME_REPLACER")) | fzf-tmux \
+			(tmux list-sessions -F '#S' && (~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs)) | fzf-tmux \
 				--bind "$DIR_BIND" \
 				--bind "$SESSION_BIND" \
-				--bind "$ZOXIDE_BIND" \
+				--bind "$ALL_PROJECTS_BIND" \
 				--border-label "$BORDER_LABEL" \
 				--header "$HEADER" \
 				--no-sort \
@@ -95,20 +95,13 @@ if [ $# -eq 0 ]; then             # no argument provided
 		)
 	fi
 else # argument provided
-	zoxide query "$1" &>/dev/null
-	ZOXIDE_RESULT_EXIT_CODE=$?
-	if [ $ZOXIDE_RESULT_EXIT_CODE -eq 0 ]; then # zoxide result found
-		RESULT=$(zoxide query "$1")
-	else # no zoxide result found
-		ls "$1" &>/dev/null
-		LS_EXIT_CODE=$?
-		if [ $LS_EXIT_CODE -eq 0 ]; then # directory found
-			RESULT=$1
-		else # no directory found
+  result=~/.bashrc.d/portable/functions.bash && tmuxps_get_project_dirs | grep -E "$1";
+	result_exit_code=$?
+	if [ ! $result_exit_code -eq 0 ]; then # zoxide result found
 			echo "No directory found."
 			exit 1
-		fi
 	fi
+  RESULT=$result;
 fi
 
 if [ "$RESULT" = "" ]; then # no result
@@ -119,7 +112,6 @@ if [ $HOME_SED_SAFE -eq 0 ]; then
 	RESULT=$(echo "$RESULT" | sed -e "s|^~/|$HOME/|") # get real home path back
 fi
 
-zoxide add "$RESULT" &>/dev/null # add to zoxide database
 FOLDER=$(basename "$RESULT")
 SESSION_NAME=$(echo "$FOLDER" | tr ' ' '_' | tr '.' '_' | tr ':' '_')
 
