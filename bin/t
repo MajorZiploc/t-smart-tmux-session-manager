@@ -46,6 +46,7 @@ if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
 	HOME_REPLACER="s|^$HOME/|~/|"
 fi
 
+source ~/.bashrc;
 function tmux_all_projects_list {
   if which zoxide &>/dev/null; then
     ALL_PROJECTS=$(zoxide query -l | sed -e "$HOME_REPLACER");
@@ -68,7 +69,6 @@ if which zoxide &>/dev/null; then
 # ZOXIDE_BIND
   ALL_PROJECTS_BIND="ctrl-x:change-prompt(zoxide> )+reload(zoxide query -l | sed -e \"$HOME_REPLACER\")"
 else
-  source ~/.bashrc;
   ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(echo \"$ALL_PROJECTS\")"
 fi
 
