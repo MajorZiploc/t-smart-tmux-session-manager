@@ -46,27 +46,37 @@ if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
 	HOME_REPLACER="s|^$HOME/|~/|"
 fi
 
-ALL_PROJECTS="";
-
-source ~/.bashrc;
 function tmux_all_projects_list {
-  local items="";
-  tmuxps_get_project_dirs;
-  for _path in $(echo "${TMUXPS_PROJECT_DIRS[@]}" | tr " " "\n"); do
-    [[ -d "$_path" ]] && {
-      items+=$(find "$_path" -maxdepth 1 -mindepth 1 -type d);
-      items+="\n";
-    }
-  done;
-  ALL_PROJECTS=$(echo "$items");
+  if which zoxide &>/dev/null; then
+    ALL_PROJECTS=$(zoxide query -l | sed -e "$HOME_REPLACER");
+  else
+    local items="";
+    tmuxps_get_project_dirs;
+    for _path in $(echo "${TMUXPS_PROJECT_DIRS[@]}" | tr " " "\n"); do
+      [[ -d "$_path" ]] && {
+        items+=$(find "$_path" -maxdepth 1 -mindepth 1 -type d);
+        items+="\n";
+      }
+    done;
+    ALL_PROJECTS=$items;
+  fi
 }
+
 tmux_all_projects_list
+
+if which zoxide &>/dev/null; then
+# ZOXIDE_BIND
+  ALL_PROJECTS_BIND="ctrl-x:change-prompt(zoxide> )+reload(zoxide query -l | sed -e \"$HOME_REPLACER\")"
+else
+  source ~/.bashrc;
+  ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(echo \"$ALL_PROJECTS\")"
+fi
 
 BORDER_LABEL=" t - smart tmux session manager "
 HEADER=" ctrl-s: sessions / ctrl-x: all projects / ctrl-d: directory"
 PROMPT=$(get_fzf_prompt)
 SESSION_BIND="ctrl-s:change-prompt(sessions> )+reload(tmux list-sessions -F '#S')"
-ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(echo \"$ALL_PROJECTS\")"
+
 
 if fd --version &>/dev/null; then # fd is installed
 	DIR_BIND="ctrl-d:change-prompt(directory> )+reload(cd $HOME && echo $HOME; fd --type d --hidden --absolute-path --color never --exclude .git --exclude node_modules)"
@@ -78,7 +88,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 	if [ "$TMUX" = "" ]; then        # not in tmux
 		if [ $TMUX_STATUS -eq 0 ]; then # tmux is running
 			RESULT=$(
-				(tmux list-sessions -F '#S' && (tmux_all_projects_list)) | fzf \
+				(tmux list-sessions -F '#S' && (echo "$ALL_PROJECTS")) | fzf \
 					--bind "$DIR_BIND" \
 					--bind "$SESSION_BIND" \
 					--bind "$ALL_PROJECTS_BIND" \
@@ -89,7 +99,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 			)
 		else # tmux is not running
 			RESULT=$(
-				(tmux_all_projects_list) | fzf \
+				(echo "$ALL_PROJECTS") | fzf \
 					--bind "$DIR_BIND" \
 					--border-label "$BORDER_LABEL" \
 					--header " ctrl-d: directory" \
@@ -99,7 +109,7 @@ if [ $# -eq 0 ]; then             # no argument provided
 		fi
 	else # in tmux
 		RESULT=$(
-			(tmux list-sessions -F '#S' && (tmux_all_projects_list)) | fzf-tmux \
+			(tmux list-sessions -F '#S' && (echo "$ALL_PROJECTS")) | fzf-tmux \
 				--bind "$DIR_BIND" \
 				--bind "$SESSION_BIND" \
 				--bind "$ALL_PROJECTS_BIND" \
@@ -111,21 +121,33 @@ if [ $# -eq 0 ]; then             # no argument provided
 		)
 	fi
 else # argument provided
-  result=$(tmux_all_projects_list | grep -E "$1");
+  result=$(echo "$ALL_PROJECTS" | grep -E "$1");
 	result_exit_code=$?
-	if [ ! $result_exit_code -eq 0 ]; then # zoxide result found
+	if [ ! $result_exit_code -eq 0 ]; then
+		ls "$1" &>/dev/null
+		LS_EXIT_CODE=$?
+		if [ $LS_EXIT_CODE -eq 0 ]; then
+			RESULT=$1
+		else
 			echo "No directory found."
 			exit 1
+    fi
+  else
+    RESULT=$result;
 	fi
-  RESULT=$result;
 fi
 
-if [ "$RESULT" = "" ]; then # no result
-	exit 0                     # exit silently
+if [ "$RESULT" = "" ]; then
+	exit 0
 fi
 
 if [ $HOME_SED_SAFE -eq 0 ]; then
 	RESULT=$(echo "$RESULT" | sed -e "s|^~/|$HOME/|") # get real home path back
+fi
+
+
+if which zoxide &>/dev/null; then
+  zoxide add "$RESULT" &>/dev/null
 fi
 
 FOLDER=$(basename "$RESULT")
