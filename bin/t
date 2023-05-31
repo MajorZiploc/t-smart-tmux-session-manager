@@ -151,7 +151,7 @@ if which zoxide &>/dev/null; then
 fi
 
 FOLDER=$(basename "$RESULT")
-SESSION_NAME=$(echo "$FOLDER" | tr ' ' '_' | tr '.' '_' | tr ':' '_')
+SESSION_NAME=$(echo "$FOLDER" | tr ':.[[:blank:]]' '-')
 
 if [ $TMUX_STATUS -eq 0 ]; then                                 # tmux is running
 	SESSION=$(tmux list-sessions -F '#S' | grep "^$SESSION_NAME$") # find existing session
