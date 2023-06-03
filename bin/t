@@ -1,176 +1,203 @@
 #!/usr/bin/env bash
 
 if [ "$1" = "-h" ] || [ "$1" == "--help" ]; then # help argument
-	printf "\n"
-	printf "\033[1m  t - the smart tmux session manager\033[0m\n"
-	printf "\033[37m  https://github.com/joshmedeski/t-smart-tmux-session-manager\n"
-	printf "\n"
-	printf "\033[32m  Run interactive mode\n"
-	printf "\033[34m      t\n"
-	printf "\033[34m        ctrl-s list only tmux sessions\n"
-	printf "\033[34m        ctrl-x list all projects\n"
-	printf "\033[34m        ctrl-d list directories\n"
-	printf "\n"
-	printf "\033[32m  Go to session (matches tmux session, all projects, or directory)\n"
-	printf "\033[34m      t {name}\n"
-	printf "\n"
-	printf "\033[32m  Open popup (while in tmux)\n"
-	printf "\033[34m      <prefix>+T\n"
-	printf "\033[34m        ctrl-s list only tmux sessions\n"
-	printf "\033[34m        ctrl-x list all projects\n"
-	printf "\033[34m        ctrl-d list directories\n"
-	printf "\n"
-	printf "\033[32m  Show help\n"
-	printf "\033[34m      t -h\n"
-	printf "\033[34m      t --help\n"
-	printf "\n"
-	exit 0
+	printf "\n";
+	printf "\033[1m  t - the smart tmux session manager\033[0m\n";
+	printf "\033[37m  https://github.com/joshmedeski/t-smart-tmux-session-manager\n";
+	printf "\n";
+	printf "\033[32m  Run interactive mode\n";
+	printf "\033[34m      t\n";
+	printf "\033[34m        ctrl-s list only tmux sessions\n";
+	printf "\033[34m        ctrl-x list all projects\n";
+	printf "\033[34m        ctrl-d list directories\n";
+	printf "\n";
+	printf "\033[32m  Go to session (matches tmux session, all projects, or directory)\n";
+	printf "\033[34m      t {name}\n";
+	printf "\n";
+	printf "\033[32m  Open popup (while in tmux)\n";
+	printf "\033[34m      <prefix>+T\n";
+	printf "\033[34m        ctrl-s list only tmux sessions\n";
+	printf "\033[34m        ctrl-x list all projects\n";
+	printf "\033[34m        ctrl-d list directories\n";
+	printf "\n";
+	printf "\033[32m  Show help\n";
+	printf "\033[34m      t -h\n";
+	printf "\033[34m      t --help\n";
+	printf "\n";
+	exit 0;
 fi
 
-tmux ls &>/dev/null
-TMUX_STATUS=$?
+function main {
+  tmux ls &>/dev/null;
+  local tmux_status=$?;
 
-get_fzf_prompt() {
-	local fzf_prompt
-	local fzf_default_prompt='>  '
-	if [ $TMUX_STATUS -eq 0 ]; then # tmux is running
-		fzf_prompt="$(tmux show -gqv '@t-fzf-prompt')"
-	fi
-	[ -n "$fzf_prompt" ] && echo "$fzf_prompt" || echo "$fzf_default_prompt"
-}
+  function get_fzf_prompt {
+    local fzf_prompt;
+    local fzf_default_prompt='>  ';
+    # tmux is running
+    if [ $tmux_status -eq 0 ]; then
+      fzf_prompt="$(tmux show -gqv '@t-fzf-prompt')";
+    fi
+    [ -n "$fzf_prompt" ] && echo "$fzf_prompt" || echo "$fzf_default_prompt";
+  }
 
-HOME_REPLACER=""                                          # default to a noop
-echo "$HOME" | grep -E "^[a-zA-Z0-9\-_/.@]+$" &>/dev/null # chars safe to use in sed
-HOME_SED_SAFE=$?
-if [ $HOME_SED_SAFE -eq 0 ]; then # $HOME should be safe to use in sed
-	HOME_REPLACER="s|^$HOME/|~/|"
-fi
+  # default to a noop
+  local home_replacer="";
+  # chars safe to use in sed
+  echo "$HOME" | grep -E "^[a-zA-Z0-9\-_/.@]+$" &>/dev/null;
+  local home_sed_safe=$?;
+  # $HOME should be safe to use in sed
+  if [ $home_sed_safe -eq 0 ]; then
+    home_replacer="s|^$HOME/|~/|";
+  fi
 
-function tmux_all_projects_list {
-  source ~/all_in_one.bash >/dev/null 2>&1;
+  function tmux_all_projects_list {
+    source ~/all_in_one.bash >/dev/null 2>&1;
+    if which zoxide &>/dev/null; then
+      ALL_PROJECTS=$(zoxide query -l | sed -e "$home_replacer");
+    else
+      local items="";
+      tmuxps_get_project_dirs;
+      for _path in $(echo "${TMUXPS_PROJECT_DIRS[@]}" | tr " " "\n"); do
+        [[ -d "$_path" ]] && {
+          items+=$(find "$_path" -maxdepth 1 -mindepth 1 -type d);
+          items+="\n";
+        }
+      done;
+      ALL_PROJECTS=$items;
+    fi
+  }
+
+  tmux_all_projects_list;
+
+  local all_projects_bind;
   if which zoxide &>/dev/null; then
-    ALL_PROJECTS=$(zoxide query -l | sed -e "$HOME_REPLACER");
+  # ZOXIDE_BIND
+    all_projects_bind="ctrl-x:change-prompt(zoxide> )+reload(zoxide query -l | sed -e \"$home_replacer\")";
   else
-    local items="";
-    tmuxps_get_project_dirs;
-    for _path in $(echo "${TMUXPS_PROJECT_DIRS[@]}" | tr " " "\n"); do
-      [[ -d "$_path" ]] && {
-        items+=$(find "$_path" -maxdepth 1 -mindepth 1 -type d);
-        items+="\n";
-      }
-    done;
-    ALL_PROJECTS=$items;
+    all_projects_bind="ctrl-x:change-prompt(all_projects> )+reload(echo \"$ALL_PROJECTS\")";
+  fi
+
+  local border_label=" t - smart tmux session manager ";
+  local header=" ctrl-s: sessions / ctrl-x: all projects / ctrl-d: directory";
+  local prompt=$(get_fzf_prompt);
+  local session_bind="ctrl-s:change-prompt(sessions> )+reload(tmux list-sessions -F '#S')";
+
+  local dir_bind;
+  if fd --version &>/dev/null; then # fd is installed
+    dir_bind="ctrl-d:change-prompt(directory> )+reload(cd $HOME && echo $HOME; fd --type d --hidden --absolute-path --color never --exclude .git --exclude node_modules)";
+  else # fd is not installed
+    dir_bind="ctrl-d:change-prompt(directory> )+reload(cd $HOME && find ~+ -type d -name node_modules -prune -o -name .git -prune -o -type d -print)";
+  fi
+
+  local result;
+  # no argument provided
+  if [ $# -eq 0 ]; then
+    # not in tmux
+    if [ "$TMUX" = "" ]; then
+      # tmux is running
+      if [ $tmux_status -eq 0 ]; then
+        result=$(
+          (tmux list-sessions -F '#S' && (echo "$ALL_PROJECTS")) | fzf \
+            --bind "$dir_bind" \
+            --bind "$session_bind" \
+            --bind "$all_projects_bind" \
+            --border-label "$border_label" \
+            --header "$header" \
+            --no-sort \
+            --prompt "$prompt"
+        );
+      # tmux is not running
+      else
+        result=$(
+          (echo "$ALL_PROJECTS") | fzf \
+            --bind "$dir_bind" \
+            --border-label "$border_label" \
+            --header " ctrl-d: directory" \
+            --no-sort \
+            --prompt "$prompt"
+        );
+      fi
+    # in tmux
+    else
+      result=$(
+        (tmux list-sessions -F '#S' && (echo "$ALL_PROJECTS")) | fzf-tmux \
+          --bind "$dir_bind" \
+          --bind "$session_bind" \
+          --bind "$all_projects_bind" \
+          --border-label "$border_label" \
+          --header "$header" \
+          --no-sort \
+          --prompt "$prompt" \
+          -p 60%,50%
+      )
+    fi
+  else # argument provided
+    result=$(echo "$ALL_PROJECTS" | grep -E "$1");
+    result_exit_code=$?;
+    if [ ! $result_exit_code -eq 0 ]; then
+      ls "$1" &>/dev/null;
+      local ls_exit_code=$?
+      if [ $ls_exit_code -eq 0 ]; then
+        result=$1;
+      else
+        echo "No directory found.";
+        exit 1;
+      fi
+    else
+      result=$result;
+    fi
+  fi
+
+  if [ "$result" = "" ]; then
+    exit 0;
+  fi
+
+  if [ $home_sed_safe -eq 0 ]; then
+    # get real home path back
+    result=$(echo "$result" | sed -e "s|^~/|$HOME/|");
+  fi
+
+
+  if which zoxide &>/dev/null; then
+    zoxide add "$result" &>/dev/null;
+  fi
+
+  local folder; folder=$(basename "$result");
+  local session_name; session_name=$(echo "$folder" | tr ':.[[:blank:]]' '-');
+
+  local session="";
+  # tmux is running
+  if [ $tmux_status -ne 0 ]; then
+    # find existing session
+    session=$(tmux list-sessions -F '#S' | grep "^$session_name$");
+  fi
+
+  # not currently in tmux
+  if [ "$TMUX" = "" ]; then
+    # session does not exist
+    if [ "$session" = "" ]; then
+      # create session and attach
+      tmux new-session -d -s "$session_name" -c "$result";
+      tmux switch-client -t "$session_name"\; split-window -c "$result" -h \; select-pane -L \; new-window -c "$result" \; next-window;
+    # session exists
+    else
+      # attach to session
+      tmux attach -t "$session";
+    fi
+  # currently in tmux
+  else
+    # session does not exist
+    if [ "$session" = "" ]; then
+      # create session
+      tmux new-session -d -s "$session_name" -c "$result";
+      tmux switch-client -t "$session_name"\; split-window -c "$result" -h \; select-pane -L \; new-window -c "$result" \; next-window;
+    # session exists
+    else
+      # switch to session
+      tmux switch-client -t "$session";
+    fi
   fi
 }
 
-tmux_all_projects_list
-
-if which zoxide &>/dev/null; then
-# ZOXIDE_BIND
-  ALL_PROJECTS_BIND="ctrl-x:change-prompt(zoxide> )+reload(zoxide query -l | sed -e \"$HOME_REPLACER\")"
-else
-  ALL_PROJECTS_BIND="ctrl-x:change-prompt(all_projects> )+reload(echo \"$ALL_PROJECTS\")"
-fi
-
-BORDER_LABEL=" t - smart tmux session manager "
-HEADER=" ctrl-s: sessions / ctrl-x: all projects / ctrl-d: directory"
-PROMPT=$(get_fzf_prompt)
-SESSION_BIND="ctrl-s:change-prompt(sessions> )+reload(tmux list-sessions -F '#S')"
-
-
-if fd --version &>/dev/null; then # fd is installed
-	DIR_BIND="ctrl-d:change-prompt(directory> )+reload(cd $HOME && echo $HOME; fd --type d --hidden --absolute-path --color never --exclude .git --exclude node_modules)"
-else # fd is not installed
-	DIR_BIND="ctrl-d:change-prompt(directory> )+reload(cd $HOME && find ~+ -type d -name node_modules -prune -o -name .git -prune -o -type d -print)"
-fi
-
-if [ $# -eq 0 ]; then             # no argument provided
-	if [ "$TMUX" = "" ]; then        # not in tmux
-		if [ $TMUX_STATUS -eq 0 ]; then # tmux is running
-			RESULT=$(
-				(tmux list-sessions -F '#S' && (echo "$ALL_PROJECTS")) | fzf \
-					--bind "$DIR_BIND" \
-					--bind "$SESSION_BIND" \
-					--bind "$ALL_PROJECTS_BIND" \
-					--border-label "$BORDER_LABEL" \
-					--header "$HEADER" \
-					--no-sort \
-					--prompt "$PROMPT"
-			)
-		else # tmux is not running
-			RESULT=$(
-				(echo "$ALL_PROJECTS") | fzf \
-					--bind "$DIR_BIND" \
-					--border-label "$BORDER_LABEL" \
-					--header " ctrl-d: directory" \
-					--no-sort \
-					--prompt "$PROMPT"
-			)
-		fi
-	else # in tmux
-		RESULT=$(
-			(tmux list-sessions -F '#S' && (echo "$ALL_PROJECTS")) | fzf-tmux \
-				--bind "$DIR_BIND" \
-				--bind "$SESSION_BIND" \
-				--bind "$ALL_PROJECTS_BIND" \
-				--border-label "$BORDER_LABEL" \
-				--header "$HEADER" \
-				--no-sort \
-				--prompt "$PROMPT" \
-				-p 60%,50%
-		)
-	fi
-else # argument provided
-  result=$(echo "$ALL_PROJECTS" | grep -E "$1");
-	result_exit_code=$?
-	if [ ! $result_exit_code -eq 0 ]; then
-		ls "$1" &>/dev/null
-		LS_EXIT_CODE=$?
-		if [ $LS_EXIT_CODE -eq 0 ]; then
-			RESULT=$1
-		else
-			echo "No directory found."
-			exit 1
-    fi
-  else
-    RESULT=$result;
-	fi
-fi
-
-if [ "$RESULT" = "" ]; then
-	exit 0
-fi
-
-if [ $HOME_SED_SAFE -eq 0 ]; then
-	RESULT=$(echo "$RESULT" | sed -e "s|^~/|$HOME/|") # get real home path back
-fi
-
-
-if which zoxide &>/dev/null; then
-  zoxide add "$RESULT" &>/dev/null
-fi
-
-FOLDER=$(basename "$RESULT")
-SESSION_NAME=$(echo "$FOLDER" | tr ':.[[:blank:]]' '-')
-
-if [ $TMUX_STATUS -eq 0 ]; then                                 # tmux is running
-	SESSION=$(tmux list-sessions -F '#S' | grep "^$SESSION_NAME$") # find existing session
-else
-	SESSION=""
-fi
-
-if [ "$TMUX" = "" ]; then                          # not currently in tmux
-	if [ "$SESSION" = "" ]; then                      # session does not exist
-		tmux new-session -d -s "$SESSION_NAME" -c "$RESULT" # create session and attach
-    tmux switch-client -t "$SESSION_NAME"\; split-window -c "$RESULT" -h \; select-pane -L \; new-window -c "$RESULT" \; next-window
-	else                                              # session exists
-		tmux attach -t "$SESSION"                        # attach to session
-	fi
-else                                                  # currently in tmux
-	if [ "$SESSION" = "" ]; then                         # session does not exist
-		tmux new-session -d -s "$SESSION_NAME" -c "$RESULT" # create session
-    tmux switch-client -t "$SESSION_NAME"\; split-window -c "$RESULT" -h \; select-pane -L \; new-window -c "$RESULT" \; next-window
-	else                                                 # session exists
-		tmux switch-client -t "$SESSION"                    # switch to session
-	fi
-fi
+main "$@";
